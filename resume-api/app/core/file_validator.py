@@ -1,8 +1,7 @@
 import os 
 import uuid
-from fastapi import UploadFile, HTTPException
-
 import io
+from fastapi import UploadFile, HTTPException
 from app.core.s3_client import USE_S3, upload_file_to_s3
 
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
@@ -35,8 +34,8 @@ def validate_resume_file(file: UploadFile) -> None:
             detail=f"Invalid content type '{file.content_type}'. Must be application/pdf."
         )
     
-async def read_and_validate_size(file: UploadFile)->bytes:
-    content =await file.read()
+async def read_and_validate_size(file: UploadFile) -> bytes:
+    content = await file.read()
 
     if len(content) == 0:
         raise HTTPException(
@@ -45,6 +44,7 @@ async def read_and_validate_size(file: UploadFile)->bytes:
         )
 
     if len(content) > MAX_FILE_SIZE_BYTES:
+        size_mb = len(content) / (1024 * 1024)
         raise HTTPException(
             status_code=400,
             detail=f"File too large ({size_mb:.1f}MB). Maximum size is 5MB."
@@ -55,7 +55,7 @@ def generate_safe_filename(original_filename: str) -> str:
     _, extension = os.path.splitext(original_filename.lower())
     return f"{uuid.uuid4()}{extension}"
 
-def get_upload_path(stored_filename: str, upload_dir: str="uploads")->str:
+def get_upload_path(stored_filename: str, upload_dir: str = "uploads") -> str:
     os.makedirs(upload_dir, exist_ok=True)
     return os.path.join(upload_dir, stored_filename)
 
@@ -66,6 +66,6 @@ def save_resume_file(content: bytes, stored_filename: str) -> str:
         return key
     else:
         path = get_upload_path(stored_filename)
-        with open(path,"wb") as f:
+        with open(path, "wb") as f:
             f.write(content)
         return path
