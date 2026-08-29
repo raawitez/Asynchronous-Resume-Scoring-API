@@ -5,6 +5,7 @@ services:
     runtime: python
     region: singapore
     plan: free
+    rootDir: resume-api
     buildCommand: pip install -r requirements.txt
     startCommand: bash start.sh
     healthCheckPath: /health/live
