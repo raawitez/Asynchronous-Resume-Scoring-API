@@ -8,7 +8,7 @@ load_dotenv()
 
 def _create_redis_client():
     url = os.getenv("REDIS_URL")
-+
+
     client_kwargs = {
         "decode_responses": True,
         "socket_timeout": 3.0,
