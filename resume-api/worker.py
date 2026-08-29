@@ -3,11 +3,10 @@ import json
 import time
 import signal
 import pika
+import tempfile
 from loguru import logger
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-from app.core.s3_client import USE_S3, download_file_from_s3
-import tempfile
 
 load_dotenv()
 
@@ -16,6 +15,7 @@ from app.database import SessionLocal, engine, Base
 from app.models.resume_model import Resume
 from app.cache.redis_client import set_cache
 from app.messaging.events import QUEUE_RESUME_PROCESSING
+from app.core.s3_client import USE_S3, download_file_from_s3
 
 from processing.parser import extract_text_from_pdf, PDFParseError
 from processing.scorer import score_resume
@@ -62,23 +62,25 @@ def cache_score(resume_id: int, score_data: dict):
     logger.info(f"[WORKER] Score cached for resume {resume_id}")
 
 
-def process_resume(event: dict):
+def process_resume(event: dict) -> bool:
     resume_id = event.get("resume_id")
     file_path = event.get("file_path")
     user_id = event.get("user_id")
-    local_path = get_local_file_for_processing(file_path)
-    text = extract_text_from_pdf(local_path)
-    
+
     logger.info(f"\n{'-' * 60}")
     logger.info(f"[WORKER] Processing resume {resume_id}")
     logger.info(f"[WORKER] File: {file_path} | User: {user_id}")
 
     update_resume_status(resume_id, "processing")
 
-    logger.info(f"[WORKER] Extracting text from PDF...")
-
+    local_path = None
+    
     try:
-        text = extract_text_from_pdf(file_path)
+        logger.info(f"[WORKER] Fetching file for processing...")
+        local_path = get_local_file_for_processing(file_path)
+
+        logger.info(f"[WORKER] Extracting text from PDF...")
+        text = extract_text_from_pdf(local_path)
         logger.info(f"[WORKER] Text extraction complete")
 
     except PDFParseError as e:
@@ -88,7 +90,15 @@ def process_resume(event: dict):
 
     except Exception as e:
         logger.error(f"[WORKER] Unexpected parse error: {e}")
+        update_resume_status(resume_id, "failed")
         return False
+    finally:
+        # Clean up temporary file if downloaded from S3
+        if USE_S3 and local_path and os.path.exists(local_path):
+            try:
+                os.remove(local_path)
+            except Exception as e:
+                logger.warning(f"[WORKER] Could not remove temp file {local_path}: {e}")
 
     logger.info(f"[WORKER] Scoring resume...")
 
@@ -181,11 +191,13 @@ def main():
 
     if rabbitmq_url:
         params = pika.URLParameters(rabbitmq_url)
+        params.socket_timeout = 10.0
     else:
         params = pika.ConnectionParameters(
             host = os.getenv("RABBITMQ_HOST", "localhost"),
             port=int(os.getenv("RABBITMQ_PORT", "5672")),
-            heartbeat=600
+            heartbeat=600,
+            socket_timeout=10.0
         )
     logger.info("Connecting to RabbitMQ...")
     connection = pika.BlockingConnection(params)
@@ -197,6 +209,8 @@ def main():
         durable=True
     )
     logger.info(f"Queue '{QUEUE_RESUME_PROCESSING}' ready")
+
+    channel.basic_qos(prefetch_count=1)
 
     channel.basic_consume(
         queue=QUEUE_RESUME_PROCESSING,
@@ -213,10 +227,14 @@ def main():
         channel.stop_consuming()
 
     signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
 
-    channel.start_consuming()
-    connection.close()
-    logger.info("Worker stopped.")
+    try:
+        channel.start_consuming()
+    finally:
+        if connection and not connection.is_closed:
+            connection.close()
+        logger.info("Worker stopped.")
 
 
 if __name__ == "__main__":

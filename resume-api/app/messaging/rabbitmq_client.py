@@ -15,20 +15,22 @@ class RabbitMQPublisher:
     def _build_params(self):
         url = os.getenv("RABBITMQ_URL")
         if url:
-            return pika.URLParameters(url)
+            params = pika.URLParameters(url)
+            params.socket_timeout = 5.0
+            return params
+        
         return pika.ConnectionParameters(
             host=os.getenv("RABBITMQ_HOST", "localhost"),
             port=int(os.getenv("RABBITMQ_PORT", "5672")),
-            heartbeat=600
+            heartbeat=600,
+            socket_timeout=5.0
         )
 
     def connect(self):
         try:
-            self.connection = pika.BlockingConnection(
-                self._build_params()
-            )
+            self.connection = pika.BlockingConnection(self._build_params())
             self.channel = self.connection.channel()
-            logger.info("RabbitMQ publisher connected ")
+            logger.info("RabbitMQ publisher connected successfully")
         except Exception as e:
             logger.warning(f"RabbitMQ connection failed: {e}")
             self.connection = None
@@ -43,6 +45,9 @@ class RabbitMQPublisher:
             logger.warning(f"RabbitMQ disconnect error: {e}")
 
     def publish(self, queue_name: str, event: dict) -> bool:
+        if not self.connection or self.connection.is_closed or not self.channel or self.channel.is_closed:
+            self.connect()
+
         if not self.channel:
             logger.warning(
                 f"RabbitMQ unavailable — "
@@ -70,7 +75,7 @@ class RabbitMQPublisher:
             return True
 
         except Exception as e:
-            logger.error(f"[MQ] Publish failed: {e}")
+            logger.error(f"[MQ] Publish failed: {e}. Attempting reconnect.")
             self.connect()  
             return False
 

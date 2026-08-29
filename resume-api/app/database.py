@@ -5,23 +5,28 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "sqlite:///./resume.db"
-)
+DATABASE_URL = os.getenv("DATABASE_URL","sqlite:///./resume.db")
 
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-connect_args = (
-    {"check_same_thread": False}
-    if DATABASE_URL.startswith("sqlite")
-    else {}
-)
+is_sqlite = DATABASE_URL.startswith("sqlite")
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args=connect_args,
-    pool_pre_ping=True
-)
+connect_args = {"check_same_thread": False} if is_sqlite else {}
+
+engine_kwargs = {
+    "connect_args": connect_args,
+    "pool_pre_ping": True,
+}
+
+if not is_sqlite:
+    engine_kwargs.update({
+        "pool_size": 5,        
+        "max_overflow": 10,
+        "pool_recycle": 300,
+    })
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 SessionLocal = sessionmaker(
     autocommit=False,
@@ -30,3 +35,10 @@ SessionLocal = sessionmaker(
 )
 
 Base = declarative_base() 
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
