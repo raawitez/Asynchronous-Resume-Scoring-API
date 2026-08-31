@@ -26,10 +26,10 @@ def get_db() -> Session:
     return SessionLocal()
 
 def update_resume_status(
-        resume_id: int,
-        status: str,
-        score: float = None,
-        score_details: str = None
+    resume_id: int,
+    status: str,
+    score: float = None,
+    score_details: str = None
 ):
     db = get_db()
     try:
@@ -55,12 +55,20 @@ def update_resume_status(
     finally:
         db.close()
 
-
 def cache_score(resume_id: int, score_data: dict):
     cache_key = f"resume_score:{resume_id}"
     set_cache(cache_key, score_data, ttl=3600)
     logger.info(f"[WORKER] Score cached for resume {resume_id}")
 
+def get_local_file_for_processing(file_path: str) -> str:
+    """Download from S3 to tempfile if S3 is active; otherwise return local path."""
+    if USE_S3:
+        content = download_file_from_s3(file_path)
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        tmp.write(content)
+        tmp.close()
+        return tmp.name
+    return file_path
 
 def process_resume(event: dict) -> bool:
     resume_id = event.get("resume_id")
@@ -93,7 +101,6 @@ def process_resume(event: dict) -> bool:
         update_resume_status(resume_id, "failed")
         return False
     finally:
-        # Clean up temporary file if downloaded from S3
         if USE_S3 and local_path and os.path.exists(local_path):
             try:
                 os.remove(local_path)
@@ -106,10 +113,7 @@ def process_resume(event: dict) -> bool:
         score_result = score_resume(text)
         total_score = score_result["total_score"]
         grade = score_result["grade"]
-        logger.info(
-            f"[WORKER] Score: {total_score}/100 "
-            f"Grade: {grade}"
-        )
+        logger.info(f"[WORKER] Score: {total_score}/100 Grade: {grade}")
 
     except Exception as e:
         logger.error(f"[WORKER] Scoring failed: {e}")
@@ -136,7 +140,7 @@ def process_resume(event: dict) -> bool:
         "resume_id": resume_id,
         "status": "scored",
         "score": total_score,
-        "score_details":{
+        "score_details": {
             "breakdown": score_result["breakdown"],
             "keywords_found": score_result["keywords_found"],
             "feedback": score_result["feedback"],
@@ -147,39 +151,25 @@ def process_resume(event: dict) -> bool:
 
     cache_score(resume_id, cache_data)
     logger.info(f"[WORKER] Resume {resume_id} processed successfully")
-    logger.info(f"[WORKER] Score: {total_score}/100 | Grade: {grade}")
-    logger.info(
-        f"[WORKER] Feedback: "
-        f"{score_result['feedback'][0] if score_result['feedback'] else 'N/A'}"
-    )
-
     return True
 
 def on_message(ch, method, properties, body):
     logger.info("[WORKER] Message received from queue")
     try:
         event = json.loads(body.decode("utf-8"))
-
     except json.JSONDecodeError as e:
         logger.error(f"[WORKER] Invalid JSON: {e}")
-        ch.basic_nack(
-            delivery_tag=method.delivery_tag,
-            requeue=False
-        )
+        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
         return
+
     success = process_resume(event)
     
     if success:
         ch.basic_ack(delivery_tag=method.delivery_tag)
-        logger.info("[WORKER] Message acknowledged ")
+        logger.info("[WORKER] Message acknowledged")
     else:
-        
-        ch.basic_nack(
-            delivery_tag=method.delivery_tag,
-            requeue=False
-        )
+        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
         logger.warning("[WORKER] Message rejected (not requeued)")
-
 
 def main():
     Base.metadata.create_all(bind=engine)
@@ -187,6 +177,7 @@ def main():
     logger.info("=" * 60)
     logger.info("Resume Processing Worker - Starting")
     logger.info("=" * 60)
+    
     rabbitmq_url = os.getenv("RABBITMQ_URL")
 
     if rabbitmq_url:
@@ -194,24 +185,21 @@ def main():
         params.socket_timeout = 10.0
     else:
         params = pika.ConnectionParameters(
-            host = os.getenv("RABBITMQ_HOST", "localhost"),
+            host=os.getenv("RABBITMQ_HOST", "localhost"),
             port=int(os.getenv("RABBITMQ_PORT", "5672")),
             heartbeat=600,
             socket_timeout=10.0
         )
+
     logger.info("Connecting to RabbitMQ...")
     connection = pika.BlockingConnection(params)
     channel = connection.channel()
     logger.info("Connected to RabbitMQ")
 
-    channel.queue_declare(
-        queue=QUEUE_RESUME_PROCESSING,
-        durable=True
-    )
+    channel.queue_declare(queue=QUEUE_RESUME_PROCESSING, durable=True)
     logger.info(f"Queue '{QUEUE_RESUME_PROCESSING}' ready")
 
     channel.basic_qos(prefetch_count=1)
-
     channel.basic_consume(
         queue=QUEUE_RESUME_PROCESSING,
         on_message_callback=on_message,
@@ -219,7 +207,6 @@ def main():
     )
 
     logger.info("Listening for resume processing jobs...")
-    logger.info("Press Ctrl+C to stop")
     logger.info("=" * 60)
 
     def shutdown(sig, frame):
@@ -236,16 +223,5 @@ def main():
             connection.close()
         logger.info("Worker stopped.")
 
-
 if __name__ == "__main__":
     main()
-
-
-def get_local_file_for_processing(file_path: str) -> str:
-    if USE_S3:
-        content = download_file_from_s3(file_path)
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        tmp.write(content)
-        tmp.close()
-        return tmp.name
-    return file_path
