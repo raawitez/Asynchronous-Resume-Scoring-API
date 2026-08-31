@@ -25,10 +25,10 @@ def upload_file_to_s3(file_bytes: bytes, key: str) -> str:
         return key
 
     except ClientError as e:
-        logger.error(f"[S3] Uploaded {key} to bucket {S3_BUCKET_NAME}")
+        logger.error(f"[S3] Upload failed for {key}: {e}")
         raise
 
-def dowload_file_from_s3(key: str) -> bytes:
+def download_file_from_s3(key: str) -> bytes:
     try:
         response = _s3_client.get_object(Bucket=S3_BUCKET_NAME, Key = key)
         return response["Body"].read()

@@ -21,7 +21,7 @@ def liveness():
 @router.get("/ready")
 def readiness(db: Session = Depends(get_db)):
     try:
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
     except Exception as e:
         raise HTTPException(
             status_code=503,

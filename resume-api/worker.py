@@ -43,7 +43,7 @@ def update_resume_status(
 
         if score is not None:
             resume.score = score
-        if score_details not in None:
+        if score_details is not None:
             resume.score_details = score_details
 
         db.commit()

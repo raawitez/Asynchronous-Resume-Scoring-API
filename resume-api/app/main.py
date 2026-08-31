@@ -3,7 +3,6 @@ from fastapi import FastAPI
 from loguru import logger
 
 from app.database import engine, Base
-
 from app.models.resume_model import *
 
 from app.routers.auth_router import router as auth_router
@@ -12,7 +11,7 @@ from app.routers.health_router import router as health_router
 from app.routers.metrics_router import router as metrics_router
 
 from app.core.logger import setup_logger
-from app.middleware.logging_middleware import LoggingMiddleware
+from app.middleware.logging_middleware import log_requests
 from app.core.exceptions import register_exception_handlers
 
 setup_logger()
@@ -32,7 +31,8 @@ app = FastAPI(
 )
 
 register_exception_handlers(app)
-app.add_middleware(LoggingMiddleware)
+
+app.middleware("http")(log_requests)
 
 app.include_router(auth_router)
 app.include_router(resume_router)
