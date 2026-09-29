@@ -1,4 +1,4 @@
-# AI Resume Processing Backend
+# Asynchronous Resume Scoring API
 
 An asynchronous, event-driven microservice system built with FastAPI, RabbitMQ, Redis, and PostgreSQL for ingesting, parsing, scoring, and caching resume evaluations.
 

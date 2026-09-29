@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     logger.info("Application shutting down...")
 
 app = FastAPI(
-    title="AI Resume Processing API",
+    title="Asynchronous Resume Scoring API",
     version="1.0",
     lifespan=lifespan
 )
@@ -42,7 +42,7 @@ app.include_router(metrics_router)
 @app.get("/", tags=["Root"])
 def root():
     return {
-        "name": "AI Resume Processing API",
+        "name": "Asynchronous Resume Scoring API",
         "version": "1.0",
         "status": "running",
         "docs": "/docs",

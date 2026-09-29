@@ -175,7 +175,7 @@ def main():
     Base.metadata.create_all(bind=engine)
 
     logger.info("=" * 60)
-    logger.info("Resume Processing Worker - Starting")
+    logger.info("Asynchronous Resume Scoring Worker - Starting")
     logger.info("=" * 60)
     
     rabbitmq_url = os.getenv("RABBITMQ_URL")
